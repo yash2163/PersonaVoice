@@ -26,6 +26,15 @@ from .tts import PollyTTS
 
 logger = logging.getLogger(__name__)
 
+class NoCacheStatic(StaticFiles):
+    """Static files that browsers must revalidate (cheap 304s), so a redeploy is never masked by stale JS/CSS."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
 ALLOWED_EXT = {"webm", "mp4", "m4a", "ogg", "wav", "mp3"}
 FALLBACK_QUESTIONS = [
@@ -107,7 +116,12 @@ def create_app(
                 settings.llm_max_tokens,
                 use_cache=False,  # Nova caching rules differ; keep the fallback path simple
             )
-        the_tts = tts or PollyTTS(polly, settings.polly_voice_id, settings.polly_engine, p.pronunciations)
+        the_tts = tts or PollyTTS(
+            polly, settings.polly_voice_id, settings.polly_engine, p.pronunciations,
+            rate_pct=settings.tts_rate_pct,
+            comma_pause_ms=settings.tts_comma_pause_ms,
+            sentence_pause_ms=settings.tts_sentence_pause_ms,
+        )
         the_stt = stt or GroqWhisperSTT(http_client, settings.groq_api_key, settings.stt_model, settings.stt_prompt)
 
         if not settings.bedrock_model_id and llm is None:
@@ -211,7 +225,7 @@ def create_app(
         return JSONResponse(status_code=exc.status_code, content={"error": "http_error", "message": exc.detail})
 
     # Same-origin static frontend, mounted last so /api/* wins.
-    app.mount("/", StaticFiles(directory=settings.static_dir, html=True), name="static")
+    app.mount("/", NoCacheStatic(directory=settings.static_dir, html=True), name="static")
     return app
 
 

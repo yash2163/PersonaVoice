@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>How this voice bot is built</title>
+  <meta name="description" content="Design decisions, trade-offs, measured results and next steps for the Yash Rajput voice bot.">
+  <meta name="theme-color" content="#E7ECEF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0D1A22" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230B7A75'/%3E%3Cg fill='white'%3E%3Crect x='12' y='26' width='6' height='12' rx='3'/%3E%3Crect x='22' y='18' width='6' height='28' rx='3'/%3E%3Crect x='32' y='10' width='6' height='44' rx='3'/%3E%3Crect x='42' y='20' width='6' height='24' rx='3'/%3E%3Crect x='52' y='27' width='4' height='10' rx='2'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="preload" href="/fonts/Newsreader-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/InstrumentSans-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="doc">
+  <header class="topbar">
+    <div class="topbar-in">
+      <a class="brand" href="/" aria-label="Talk to Yash, home"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" fill="currentColor"/><g fill="var(--mist)"><rect x="12" y="26" width="6" height="12" rx="3"/><rect x="22" y="18" width="6" height="28" rx="3"/><rect x="32" y="10" width="6" height="44" rx="3"/><rect x="42" y="20" width="6" height="24" rx="3"/><rect x="52" y="27" width="4" height="10" rx="2"/></g></svg><span>Talk to Yash</span></a>
+      <nav class="topnav" aria-label="Site">
+        <a class="nav-btn" href="/">Voice bot</a>
+        <a class="nav-btn" href="/about/" aria-current="page">How it's built</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <header class="masthead">
+      <h1>How this voice bot is built</h1>
+      <p class="lede">A one-day build with a clear goal: when someone asks a question, they should hear Yash's answer in about a second, and it should be true.</p>
+    </header>
+
+    <nav class="toc" aria-label="On this page">
+      <a href="#how">How a question becomes speech</a>
+      <a href="#decisions">Design decisions</a>
+      <a href="#truth">Keeping answers true</a>
+      <a href="#speed">Speed</a>
+      <a href="#reliability">When things fail</a>
+      <a href="#tested">How it's tested</a>
+      <a href="#change">What I'd change</a>
+      <a href="#add">What could be added</a>
+      <a href="#limits">Known limits</a>
+    </nav>
+
+    <section id="how">
+      <h2>How a question becomes speech</h2>
+      <ol class="steps">
+        <li><strong>You speak or type.</strong> Tapping the button records audio in the browser. Typing and the sample questions skip straight to step 3.</li>
+        <li><strong>Audio becomes text.</strong> The recording goes to the server, which sends it to Whisper on Groq and returns the words in about a third of a second.</li>
+        <li><strong>The model starts answering.</strong> The server sends the question, with Yash's whole profile already loaded in the prompt, to Claude Haiku on Amazon Bedrock and streams the reply back word by word.</li>
+        <li><strong>Words are cut into sentences.</strong> As soon as the first sentence is complete it goes to Amazon Polly, without waiting for the rest of the answer.</li>
+        <li><strong>Sentences become audio, in order.</strong> Up to three sentences are voiced in parallel, but the server releases them strictly in order.</li>
+        <li><strong>The browser plays one clip at a time.</strong> Text and audio arrive on one stream. A queue in the page plays the clips back to back, so voices never overlap.</li>
+      </ol>
+      <figure class="diagram">
+        <a href="/about/architecture.png"><img src="/about/architecture.png" alt="Architecture diagram. The browser holds the recorder, the stream client, the audio queue and a filler timer. One FastAPI server turns audio into text, streams the model's answer, cuts it into sentences, voices them in parallel and sends them back in order. Groq Whisper, Amazon Bedrock and Amazon Polly are the three outside services." width="1340" height="900"></a>
+        <figcaption>Select the diagram to open it full size.</figcaption>
+      </figure>
+    </section>
+
+    <section id="decisions">
+      <h2>Design decisions</h2>
+      <p class="section-note">Each one lists what I chose, why, and what I turned down.</p>
+
+      <article class="decision">
+        <h3>The whole profile lives in the prompt, not behind search</h3>
+        <p>Yash's profile is about 2,500 words, roughly 4,700 tokens with the instructions. That is small enough to hand to the model every time, and Bedrock's prompt caching makes the repeat cost and delay negligible (52 of 54 test turns hit the cache). The model never misses a fact because a search returned the wrong passage.</p>
+        <p class="alt">Turned down: retrieval (RAG). It adds a hop, a new way to fail and a tuning job, and only pays off when the knowledge is many times larger.</p>
+      </article>
+
+      <article class="decision">
+        <h3>Stream everything, one sentence at a time</h3>
+        <p>The slowest way to build this is to wait for the full answer, then voice it, then play it. Instead the model's output is cut at sentence ends and each sentence is voiced as soon as it exists, so the first sentence is playing while the rest is still being written. That is what gets first audio to about a second.</p>
+        <p class="alt">Turned down: voicing the complete answer at the end. It would add 2 to 4 seconds on every turn.</p>
+      </article>
+
+      <article class="decision">
+        <h3>Tap to talk, not an open microphone</h3>
+        <p>The bot listens, then answers, then listens again. That avoids echo cancellation, detecting when you interrupt, and the bot hearing itself. A Stop button and "Ask something else" still let you cut in at any time.</p>
+        <p class="alt">Turned down: a full two-way call. It is the better experience and the first thing I'd build next (see below), but it is a project of its own.</p>
+      </article>
+
+      <article class="decision">
+        <h3>Record, then transcribe, instead of live browser dictation</h3>
+        <p>Recording audio works in every modern browser and gives Whisper the whole sentence, which handles Indian English and technical terms well. A short list of words (Bedrock, OpenSearch, LoRA and others) is passed to Whisper to improve its spelling of them.</p>
+        <p class="alt">Turned down: the browser's built-in speech recognition. It is missing in Firefox and uneven in Safari, which would break the experience for some testers.</p>
+      </article>
+
+      <article class="decision">
+        <h3>Fillers only when the answer is slow</h3>
+        <p>If no answer audio has arrived after 0.8 seconds, a short pre-recorded clip ("Hmm, okay.") plays so the silence doesn't feel like a failure. The clips are made ahead of time with the same voice, cost nothing, and play at most twice a turn. Each one is neutral, so it can't contradict the answer that follows.</p>
+        <p class="alt">Turned down: a second model call to write a custom filler. It has its own wait and often arrives at the same moment as the real answer. The trade-off I accepted: when a filler plays, the real answer waits behind it.</p>
+      </article>
+
+      <article class="decision">
+        <h3>A fast model with a strict script</h3>
+        <p>Claude Haiku 4.5 starts streaming in about half a second and writes in a natural voice. The quality comes from the profile and the rules around it, not from a bigger model. If Haiku fails twice, the server falls back to Amazon Nova Micro rather than going silent.</p>
+        <p class="alt">Turned down: a larger model. Slower, higher cost and no visible gain on short spoken answers.</p>
+      </article>
+
+      <article class="decision">
+        <h3>A calmer voice, tuned by measurement</h3>
+        <p>Amazon Polly's neural voice (Matthew) reads at about 200 words a minute by default and runs sentences together. The server now sends speech markup that slows it to 86%, adds a short pause after commas and a longer one after each sentence, which brings real answers to about 140 to 165 words a minute, close to a relaxed interview. The three numbers are settings, so they can be tuned without code changes.</p>
+        <p class="alt">Turned down: a paid voice service with a free tier small enough for testers to use up. Polly is covered by the same AWS account and security setup.</p>
+      </article>
+
+      <article class="decision">
+        <h3>One HTTP stream, no special infrastructure</h3>
+        <p>The browser sends one request and gets one Server-Sent Events stream back, carrying text, audio chunks and a final summary. It works through ordinary proxies and hosts, needs no sockets and no session state, so the server stays stateless: the page sends the last few exchanges with each question.</p>
+        <p class="alt">Turned down: WebSockets, which not every host or proxy handles well, and which aren't needed while the conversation is turn by turn.</p>
+      </article>
+
+      <article class="decision">
+        <h3>Plain HTML, CSS and JavaScript, no build step</h3>
+        <p>The page is a handful of small files with no framework. It loads fast on a phone, can be read and changed by anyone, and fonts are bundled so it makes no third-party requests. The one distinctive element is the voice line, which reacts to the real audio levels of your voice and of Yash's.</p>
+        <p class="alt">Turned down: a framework and bundler. They add weight and moving parts to a page with one screen.</p>
+      </article>
+    </section>
+
+    <section id="truth">
+      <h2>Keeping the answers true</h2>
+      <p>A voice that sounds confident makes mistakes more convincing, so most of the effort went here rather than into the audio.</p>
+      <ul class="plain">
+        <li><strong>Only what's in the profile.</strong> The instructions tell the model to answer from the profile alone, to say so when it doesn't know, and never to invent stories, numbers or dates. It also avoids "this year" and similar words that would go stale.</li>
+        <li><strong>Boundaries.</strong> Family, relationships, relocation promises, salary and similar topics get a polite deflection. If asked, the bot says plainly that it is an AI.</li>
+        <li><strong>Rules the model kept breaking are enforced in code.</strong> It liked to start with "Sure," or "Ha," so a filter strips those openers. Answers over 120 words are cut at a sentence end.</li>
+        <li><strong>A strict reviewer.</strong> A second, larger model grades each answer and must quote the exact lines of the profile that support every claim. Those quotes are checked against the real file, so it can't bluff.</li>
+      </ul>
+      <p>The first rounds caught real problems: invented anecdotes, a claim of being unmarried, a commitment to relocate, and swapped figures. Each was fixed in the prompt or the profile and re-tested. Over 54 test turns (26 standard questions and 28 awkward ones) the average groundedness score was 4.73 and 4.82 out of 5, with no boundary violations.</p>
+    </section>
+
+    <section id="speed">
+      <h2>Speed</h2>
+      <p>Measured on a laptop against the real services. The deployed numbers will differ with network distance.</p>
+      <dl class="facts">
+        <div><dt>Question reaches server to first audio</dt><dd>about 1.0 s typical, 1.4 s for nine in ten</dd></div>
+        <div><dt>Model's first word</dt><dd>about 0.55 s</dd></div>
+        <div><dt>Speech to text</dt><dd>0.25 to 0.4 s</dd></div>
+        <div><dt>Answer length</dt><dd>about 50 to 70 words, capped at 120</dd></div>
+        <div><dt>Cost per answer</dt><dd>under a cent (about $0.0065)</dd></div>
+      </dl>
+      <p>Two honest caveats. First, when the filler plays, the answer in the browser begins about 2.4 to 3 seconds after the question, because it waits for the filler to finish. Second, 3 of 54 test turns were slow because the model stalled before its first word (twice for 7 to 9 seconds). I couldn't find the cause, so the server now gives up after 3.5 seconds, retries automatically, and the filler covers the wait.</p>
+    </section>
+
+    <section id="reliability">
+      <h2>When things fail</h2>
+      <p>Each outside service can fail, and the visitor should always get something useful.</p>
+      <ul class="plain">
+        <li><strong>The model is slow or erroring:</strong> retry, then the backup model, then a pre-recorded apology.</li>
+        <li><strong>The voice service fails on one sentence:</strong> that sentence is spoken by the browser's own voice.</li>
+        <li><strong>Nothing was heard, or the recording was too short:</strong> a clear message and the cursor moves to the text box.</li>
+        <li><strong>Microphone blocked or unavailable:</strong> the page switches to typing, and suggests Chrome or Safari if it is inside another app's browser.</li>
+        <li><strong>Connection drops mid-answer:</strong> what arrived is played and a Retry button appears.</li>
+        <li><strong>Too many requests:</strong> per-visitor limits protect the budget, with a friendly spoken and written message.</li>
+      </ul>
+      <p>Privacy: audio is not stored. The text of each question is logged, along with timings and a one-way hash of the visitor's address, so I can see which topics the profile is missing.</p>
+    </section>
+
+    <section id="tested">
+      <h2>How it's tested</h2>
+      <ul class="plain">
+        <li><strong>44 backend tests</strong> cover the sentence cutter, the retry and fallback logic, the opener filter, speech markup, the API and colour contrast.</li>
+        <li><strong>5 tests</strong> cover the browser's stream reader.</li>
+        <li><strong>57 browser tests</strong> run the real page in Chromium, Firefox and WebKit with a fake microphone and fake services: voice and typed flows, stopping and interrupting, every error above, history, fillers, phone layout, and keyboard use. They found real bugs, such as no feedback while the browser's microphone prompt was open.</li>
+        <li><strong>An evaluation script</strong> runs the 54 questions against the real services and writes a report of speed and the reviewer's scores. I re-run it after every change to the prompt or profile.</li>
+      </ul>
+    </section>
+
+    <section id="change">
+      <h2>What I'd change with more time</h2>
+      <ul class="plain">
+        <li><strong>Make it a real conversation.</strong> Detect when you start talking over the bot and stop it, and stream your voice as you speak instead of uploading it at the end. That also removes the tap, and lets the page show captions live.</li>
+        <li><strong>Find the model stalls.</strong> Log every first-word time in production, and if stalls persist, start a second request after 1.5 seconds and use whichever answers first.</li>
+        <li><strong>Rethink the filler.</strong> Raise the delay before it plays, or shorten the clips, so it helps slow turns without delaying normal ones. This is one setting; I'd choose it with real-user timings.</li>
+        <li><strong>Share limits across servers.</strong> Rate limits live in one process's memory today. Running more than one server, or surviving restarts, needs a shared store.</li>
+        <li><strong>Run the evaluation automatically</strong> on every change to the profile or prompt, and add a human spot-check of the reviewer model's scores.</li>
+        <li><strong>Listen tests for the voice.</strong> I tuned the pace by measuring it. A proper A/B listening test with a few people, including against Polly's generative voice, would settle what sounds most natural.</li>
+        <li><strong>Add monitoring and alerts</strong> for slow first audio, error rates and spend, rather than reading logs by hand.</li>
+        <li><strong>Test on real iPhones and Androids</strong> over HTTPS once deployed, including in-app browsers.</li>
+        <li><strong>Keep the source private.</strong> The repository is public and contains the profile. A private repository, or a profile loaded at deploy time, would fix that.</li>
+      </ul>
+    </section>
+
+    <section id="add">
+      <h2>What else could be added</h2>
+      <ul class="plain">
+        <li>A speed control for the voice, and a captions toggle, so listeners can choose their own pace.</li>
+        <li>Hindi and other languages, with a voice for each.</li>
+        <li>Suggested follow-up questions after each answer.</li>
+        <li>A way to leave a message or book time with the real Yash when the bot reaches its limits.</li>
+        <li>A shareable transcript of a conversation.</li>
+        <li>A small dashboard of the questions people ask, to show where the profile has gaps.</li>
+        <li>More than one persona from the same code, since everything about Yash lives in a few text files.</li>
+        <li>An installable app icon for phones.</li>
+      </ul>
+    </section>
+
+    <section id="limits">
+      <h2>Known limits</h2>
+      <ul class="plain">
+        <li>It takes turns; you can't talk over it.</li>
+        <li>Speech recognition can mishear unusual names or heavy background noise. Typing always works.</li>
+        <li>It only knows what's in Yash's profile, and says so when asked about anything else.</li>
+        <li>Your history is kept in this browser only. Clearing site data or switching devices removes it.</li>
+        <li>Some model stalls are unexplained, as described under Speed.</li>
+        <li>Numbers above are from local testing, not from the deployed site.</li>
+      </ul>
+    </section>
+
+    <footer class="foot">
+      <p><a href="/">Back to the voice bot</a></p>
+    </footer>
+  </main>
+</body>
+</html>

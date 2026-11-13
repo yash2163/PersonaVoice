@@ -133,7 +133,8 @@ def test_space_bar_toggles_recording_but_not_while_typing(make_page, browser):
     p.wait_state("recording", 8000)
     page.wait_for_timeout(600)
     page.keyboard.press("Space")
-    p.wait_state("transcribing", 5000) if p.state() == "recording" else None
+    # the fake speech-to-text is instant, so "transcribing" can flash past; just require recording to end
+    page.wait_for_function("document.querySelector('#talk').dataset.state !== 'recording'", timeout=5000)
 
 
 # ----------------------------------------------------------------------------- stop / interrupt
@@ -262,6 +263,153 @@ def test_in_app_browser_gets_a_hint(make_page, browser):
     assert page.is_visible("#inapp-hint")
 
 
+# ----------------------------------------------------------------------------- history and plain-language UI
+def ask_chip(p, n):
+    page = p.page
+    page.locator(".chip").nth(n).click()
+    page.wait_for_function("document.querySelector('#a-caption').textContent.includes('last one')", timeout=20000)
+    p.wait_state("idle", 30000)
+
+
+@ALL
+def test_no_technical_details_on_the_page(make_page, browser):
+    p = make_page(browser)
+    page = p.goto("?debug=1")  # even with the old debug switch, nothing technical is shown
+    ask_chip(p, 0)
+    text = page.inner_text("body").lower()
+    for word in ("request_id", "request id", "stt_ms", "first_audio", "bedrock", "polly", "whisper", "groq", "latency"):
+        assert word not in text, word
+    assert page.locator("#debug").count() == 0
+
+
+def open_history(page):
+    page.click("#history-open")
+    page.wait_for_selector("#history-drawer[open]")
+
+
+def close_history(page):
+    page.click("#history-close")
+    page.wait_for_selector("#history-drawer:not([open])", state="attached")
+
+
+@ALL
+def test_history_opens_from_the_top_bar_and_lists_every_exchange_newest_first(make_page, browser):
+    p = make_page(browser)
+    page = p.goto()
+    assert page.is_visible("#history-open") and page.is_hidden("#history-drawer")
+    assert page.is_hidden("#history-count")
+    open_history(page)
+    assert "20 messages" in page.inner_text("#history-empty")
+    assert page.is_hidden("#history-clear")
+    close_history(page)
+    ask_chip(p, 0)
+    assert page.inner_text("#history-count") == "1"
+    ask_chip(p, 1)
+    ask_chip(p, 2)
+    assert page.inner_text("#history-count") == "3"
+    open_history(page)
+    items = page.locator("#history-list .h-item")
+    assert items.count() == 3
+    assert "top three areas" in items.nth(0).inner_text() and "life story" in items.nth(2).inner_text()
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#history-drawer:not([open])", state="attached")
+    page.reload()
+    page.wait_for_function("document.querySelectorAll('.chip').length > 0")
+    assert page.inner_text("#history-count") == "3"
+    assert p.errors == []
+
+
+@ALL
+def test_history_drawer_closes_on_backdrop_click_and_space_does_not_record(make_page, browser):
+    p = make_page(browser)
+    page = p.goto()
+    open_history(page)
+    page.keyboard.press("Space")
+    page.wait_for_timeout(300)
+    assert p.state() == "idle"
+    page.mouse.click(20, 400)  # the dimmed area left of the panel
+    page.wait_for_selector("#history-drawer:not([open])", state="attached")
+
+
+@ALL
+def test_history_keeps_only_the_last_20_messages_and_can_be_cleared(make_page, browser):
+    import json
+    seeded = []
+    for i in range(10):
+        seeded += [{"role": "user", "text": f"old question {i}"}, {"role": "assistant", "text": f"old answer {i}"}]
+    p = make_page(browser)
+    page = p.goto()
+    page.evaluate("v => localStorage.setItem('voicebot.history.v1', v)", json.dumps(seeded))
+    page.reload()
+    page.wait_for_function("document.querySelectorAll('.chip').length > 0")
+    assert page.inner_text("#history-count") == "10"
+    ask_chip(p, 0)  # 11th exchange: the oldest drops out, 20 messages remain
+    assert page.inner_text("#history-count") == "10"
+    open_history(page)
+    texts = page.inner_text("#history-list")
+    assert "old question 0" not in texts and "old question 1" in texts and "life story" in page.locator("#history-list .h-item").first.inner_text()
+    assert len(json.loads(page.evaluate("localStorage.getItem('voicebot.history.v1')"))) == 20
+    page.click("#history-clear")
+    assert page.locator("#history-list .h-item").count() == 0 and page.is_visible("#history-empty")
+    assert page.is_hidden("#history-count")
+    page.reload()
+    page.wait_for_function("document.querySelectorAll('.chip').length > 0")
+    assert page.is_hidden("#history-count")
+
+
+@ALL
+def test_top_bar_stays_in_view_while_scrolling(make_page, browser):
+    p = make_page(browser, viewport={"width": 390, "height": 600}, has_touch=browser != "firefox")
+    page = p.goto()
+    ask_chip(p, 0)
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    page.wait_for_timeout(300)
+    assert page.evaluate("window.scrollY") > 50
+    box = page.locator(".topbar").bounding_box()
+    assert box["y"] == 0 and box["height"] >= 44
+    assert page.is_visible("a[href='/about/']") and page.is_visible("#history-open")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+
+
+@ALL
+def test_sample_questions_shrink_to_one_strip_after_the_first_question(make_page, browser):
+    p = make_page(browser)
+    page = p.goto()
+    before = page.locator("#chips").bounding_box()["height"]
+    assert page.inner_text("#ask-label") == "Try one of these"
+    ask_chip(p, 0)
+    assert page.inner_text("#ask-label") == "More questions"
+    assert page.locator("#chips").bounding_box()["height"] < before / 2
+    assert page.locator(".chip").count() == 8
+
+
+@ALL
+def test_static_files_must_be_revalidated(make_page, browser):
+    p = make_page(browser)
+    page = p.goto()
+    assert page.evaluate("fetch('/js/app.js').then(r => r.headers.get('cache-control'))") == "no-cache"
+
+
+@ALL
+def test_technical_page_is_linked_readable_and_fits_a_phone(make_page, browser):
+    p = make_page(browser, viewport={"width": 360, "height": 740}, device_scale_factor=2, has_touch=browser != "firefox")
+    page = p.goto()
+    page.click(".topnav >> text=How it's built")
+    page.wait_for_url("**/about/")
+    assert page.inner_text("h1") == "How this voice bot is built"
+    for heading in ("Design decisions", "What I'd change with more time", "What else could be added", "Known limits"):
+        assert page.locator("h2", has_text=heading).count() == 1
+    assert page.locator(".decision").count() >= 8
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    assert page.evaluate("document.querySelector('.diagram img').complete && document.querySelector('.diagram img').naturalWidth > 0")
+    for a in page.locator(".toc a").all():
+        assert a.bounding_box()["height"] >= 44
+    assert page.get_attribute(".topnav a[aria-current]", "href") == "/about/"
+    page.click(".topnav >> text=Voice bot")
+    page.wait_for_selector("#talk")
+    assert p.errors == []
+
+
 # ----------------------------------------------------------------------------- fillers
 @CHROMIUM_ONLY
 def test_filler_plays_only_on_slow_turns(make_page, server, browser):
@@ -272,8 +420,8 @@ def test_filler_plays_only_on_slow_turns(make_page, server, browser):
         page.locator(".chip").nth(0).click()
         page.wait_for_function("document.querySelector('#a-caption').textContent.includes('last one')", timeout=20000)
         p.wait_state("idle", 40000)
-        page.wait_for_selector("#debug:not([hidden])")
-        return int(re.search(r"fillers played\s+(\d+)", page.inner_text("#debug")).group(1))
+        page.wait_for_function("window.__voicebotDebug !== undefined")
+        return page.evaluate("window.__voicebotDebug.fillers_played")
 
     assert fillers_after_turn(0.0) == 0
     assert fillers_after_turn(1.6) >= 1

@@ -46,7 +46,10 @@ async def main() -> None:
         region_name=s.aws_region,
         **({"aws_access_key_id": s.aws_access_key_id, "aws_secret_access_key": s.aws_secret_access_key} if s.aws_access_key_id else {}),
     ).client("polly")
-    tts = PollyTTS(client, s.polly_voice_id, s.polly_engine, persona.pronunciations)
+    tts = PollyTTS(
+        client, s.polly_voice_id, s.polly_engine, persona.pronunciations,
+        rate_pct=s.tts_rate_pct, comma_pause_ms=s.tts_comma_pause_ms,
+    )
 
     out_dir = s.static_dir / "fillers"
     out_dir.mkdir(parents=True, exist_ok=True)

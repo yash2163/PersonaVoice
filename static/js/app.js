@@ -10,7 +10,9 @@ const $ = (id) => document.getElementById(id);
 const el = {
   talk: $("talk"), label: document.querySelector(".talk-label"), status: $("status"), stop: $("stop"), retry: $("retry"),
   q: $("q-caption"), a: $("a-caption"), turnQ: $("turn-q"), turnA: $("turn-a"), empty: $("empty"), chips: $("chips"),
-  form: $("text-form"), input: $("text-input"), toast: $("toast"), debug: $("debug"), hint: $("inapp-hint"),
+  form: $("text-form"), input: $("text-input"), toast: $("toast"), hint: $("inapp-hint"),
+  historyList: $("history-list"), historyEmpty: $("history-empty"), historyClear: $("history-clear"),
+  drawer: $("history-drawer"), historyOpen: $("history-open"), historyClose: $("history-close"), historyCount: $("history-count"), askLabel: $("ask-label"),
 };
 const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
 // Button label and a short status line for each state.
@@ -31,6 +33,8 @@ const STATUS = {
 };
 const VOICE_MODE = { idle: "idle", error: "idle", recording: "user", transcribing: "thinking", thinking: "thinking", speaking: "bot" };
 const MAX_Q = 500, MAX_HISTORY = 6, MAX_ANSWER_CHARS = 1500;
+const MAX_LOG = 20; // messages (questions and answers) kept in the visible history
+const LOG_KEY = "voicebot.history.v1";
 
 const queue = new AudioQueue();
 const recorder = new Recorder(() => queue.ctx);
@@ -40,7 +44,8 @@ let cfg = { sample_questions: [], fillers: [], apology: null, filler_threshold_m
 
 let state = "idle";
 let turn = null; // the live turn, or null
-let history = [];
+let history = [];            // what the model sees (last few exchanges)
+let log = loadLog();         // what the visitor sees: [{ role: "user" | "assistant", text }], oldest first
 let micOk = recordingSupported();
 let starting = false;
 let autoStop = null;
@@ -92,6 +97,8 @@ function beginTurn() {
     answer: "", spoken: [], question: "", sttMs: null, firstAnswerAt: null, timings: null, fillersPlayed: 0, requestId: "",
   };
   clearAnswer();
+  el.chips.classList.add("compact"); // sample questions shrink to one strip once the conversation starts
+  el.askLabel.textContent = "More questions";
   filler.startTurn();
   return turn;
 }
@@ -102,7 +109,7 @@ function maybeFinish() {
   turn = null;
   filler.cancelTurn();
   if (state !== "error") setState("idle");
-  if (DEBUG) renderDebug(t);
+  if (DEBUG) logDebug(t);
 }
 
 queue.onItemStart = (item) => {
@@ -190,6 +197,7 @@ async function runAsk(t, rawQuestion, sttMs) {
     if (res.sawDone && !t.errored) {
       history = [...history, { role: "user", content: question }, { role: "assistant", content: t.answer.slice(0, MAX_ANSWER_CHARS) }];
       while (history.length > MAX_HISTORY) history.splice(0, 2);
+      if (t.answer.trim()) commitToLog(question, t.answer);
     } else if (!res.sawDone && !res.sawError) {
       t.incomplete = true; // network dropped mid-stream: play what arrived, offer retry
       el.retry.hidden = false;
@@ -345,7 +353,7 @@ el.retry.addEventListener("click", () => {
 document.addEventListener("keydown", (e) => {
   if (e.code !== "Space" || e.repeat) return;
   const tag = e.target?.tagName;
-  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON" || e.target?.isContentEditable) return;
+  if (el.drawer.open || tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON" || tag === "A" || e.target?.isContentEditable) return;
   e.preventDefault();
   onTalk();
 });
@@ -358,21 +366,78 @@ document.addEventListener("visibilitychange", () => {
 });
 
 
-// ---------------------------------------------------------------------- debug
-function renderDebug(t) {
-  const perceived = t.firstAnswerAt ? Math.round(t.firstAnswerAt - t.t0) : null;
+// ---------------------------------------------------------------------- history
+function loadLog() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LOG_KEY) || "[]");
+    if (Array.isArray(raw)) {
+      const ok = raw.filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.text === "string").slice(-MAX_LOG);
+      return ok[0]?.role === "assistant" ? ok.slice(1) : ok; // always start on a question
+    }
+  } catch { /* storage unavailable: history lasts for this visit only */ }
+  return [];
+}
+
+function saveLog() {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch { /* ignore */ }
+}
+
+function commitToLog(question, answer) {
+  log.push({ role: "user", text: question }, { role: "assistant", text: answer });
+  while (log.length > MAX_LOG) log.splice(0, 2);
+  saveLog();
+  renderHistory();
+}
+
+/** Every saved exchange, newest first. Always visible so visitors know where to find it. */
+function renderHistory() {
+  el.historyList.textContent = "";
+  for (let i = log.length - 2; i >= 0; i -= 2) {
+    const q = log[i], a = log[i + 1];
+    const li = document.createElement("li");
+    li.className = "h-item";
+    const pq = document.createElement("p");
+    pq.className = "h-q";
+    pq.textContent = `You: ${q.text}`;
+    const pa = document.createElement("p");
+    pa.className = "h-a";
+    pa.textContent = a?.text ?? "";
+    li.append(pq, pa);
+    el.historyList.append(li);
+  }
+  const n = Math.floor(log.length / 2);
+  el.historyEmpty.hidden = n > 0;
+  el.historyClear.hidden = n === 0;
+  el.historyCount.hidden = n === 0;
+  el.historyCount.textContent = String(n);
+  el.historyOpen.setAttribute("aria-label", n ? `History, ${n} ${n === 1 ? "exchange" : "exchanges"}` : "History");
+}
+
+el.historyOpen.addEventListener("click", () => { if (!el.drawer.open) el.drawer.showModal(); });
+el.historyClose.addEventListener("click", () => el.drawer.close());
+el.drawer.addEventListener("click", (e) => { if (e.target === el.drawer) el.drawer.close(); }); // click on the dimmed backdrop
+el.historyClear.addEventListener("click", () => {
+  log = [];
+  history = []; // a fresh start for the bot too
+  saveLog();
+  renderHistory();
+});
+
+// ---------------------------------------------------------------------- debug (console only, ?debug=1)
+function logDebug(t) {
   const tm = t.timings || {};
-  el.debug.hidden = false;
-  el.debug.textContent = [
-    `request_id        ${t.requestId}`,
-    `stt_ms            ${t.sttMs ?? "-"}`,
-    `llm_first_token   ${tm.llm_ttft_ms ?? "-"} ms`,
-    `first_audio (srv) ${tm.first_audio_ms ?? "-"} ms`,
-    `first_audio (ui)  ${perceived ?? "-"} ms   (from end of question)`,
-    `total (srv)       ${tm.total_ms ?? "-"} ms`,
-    `fillers played    ${t.fillersPlayed}`,
-    `fallback model    ${t.fallbackUsed ? "yes" : "no"}`,
-  ].join("\n");
+  const info = {
+    request_id: t.requestId,
+    stt_ms: t.sttMs ?? null,
+    llm_first_token_ms: tm.llm_ttft_ms ?? null,
+    first_audio_server_ms: tm.first_audio_ms ?? null,
+    first_audio_ui_ms: t.firstAnswerAt ? Math.round(t.firstAnswerAt - t.t0) : null,
+    total_server_ms: tm.total_ms ?? null,
+    fillers_played: t.fillersPlayed,
+    fallback_model: !!t.fallbackUsed,
+  };
+  window.__voicebotDebug = info;
+  console.table(info);
 }
 
 // ---------------------------------------------------------------------- boot
@@ -387,6 +452,7 @@ async function boot() {
     if (r.ok) cfg = { ...cfg, ...(await r.json()) };
   } catch { /* defaults are fine */ }
   renderChips();
+  renderHistory();
   filler = new FillerController(queue, { fillers: cfg.fillers, thresholdMs: cfg.filler_threshold_ms });
   filler.load(cfg.apology).catch(() => {});
   if (isInAppBrowser()) el.hint.hidden = false;

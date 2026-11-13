@@ -3,6 +3,7 @@ import asyncio
 import logging
 import re
 from typing import Protocol
+from xml.sax.saxutils import escape as _xml_escape
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,26 @@ def normalise(text: str, pronunciations: dict[str, str] | None = None) -> str:
     return text
 
 
+_CLAUSE_BREAK = re.compile(r"([,;:\u2014\u2013])(\s+)")
+
+
+def to_ssml(text: str, *, rate_pct: int = 100, comma_pause_ms: int = 0, end_pause_ms: int = 0) -> str:
+    """Wrap clean text in SSML for a calmer, more natural delivery.
+
+    Neural voices read straight text quickly and run clauses together, so we slow the rate a
+    little, add a short pause after commas/dashes, and end each sentence clip with a longer
+    pause (sentences are synthesised separately and played back to back).
+    """
+    body = _xml_escape(text)
+    if comma_pause_ms > 0:
+        body = _CLAUSE_BREAK.sub(lambda m: f'{m.group(1)}<break time="{comma_pause_ms}ms"/> ', body)
+    if end_pause_ms > 0:
+        body += f'<break time="{end_pause_ms}ms"/>'
+    if rate_pct != 100:
+        body = f'<prosody rate="{rate_pct}%">{body}</prosody>'
+    return f"<speak>{body}</speak>"
+
+
 class TTSProvider(Protocol):
     voice_id: str
 
@@ -58,8 +79,21 @@ class PollyTTS:
     RETRIES = 2
     BACKOFF_S = 0.2
 
-    def __init__(self, client, voice_id: str, engine: str, pronunciations: dict[str, str] | None = None):
+    def __init__(
+        self,
+        client,
+        voice_id: str,
+        engine: str,
+        pronunciations: dict[str, str] | None = None,
+        *,
+        rate_pct: int = 100,
+        comma_pause_ms: int = 0,
+        sentence_pause_ms: int = 0,
+    ):
         self._client = client
+        self._rate_pct = rate_pct
+        self._comma_pause_ms = comma_pause_ms
+        self._sentence_pause_ms = sentence_pause_ms
         self.voice_id = voice_id
         self._engine = engine
         self._pron = pronunciations or {}
@@ -71,21 +105,27 @@ class PollyTTS:
             text = self._rx.sub(lambda m: self._pron[m.group(1)], text)
         return text
 
-    def _call(self, text: str) -> bytes:
+    def _call(self, ssml: str) -> bytes:
         resp = self._client.synthesize_speech(
-            Text=text,
+            Text=ssml,
             VoiceId=self.voice_id,
             Engine=self._engine,
             OutputFormat="mp3",
             SampleRate="24000",
-            TextType="text",
+            TextType="ssml",
         )
         return resp["AudioStream"].read()
 
-    async def synth(self, text: str) -> bytes | None:
+    async def synth(self, text: str, *, pause_after: bool = True) -> bytes | None:
         prepared = self._prepare(text)
         if not prepared:
             return None
+        prepared = to_ssml(
+            prepared,
+            rate_pct=self._rate_pct,
+            comma_pause_ms=self._comma_pause_ms,
+            end_pause_ms=self._sentence_pause_ms if pause_after else 0,
+        )
         for attempt in range(self.RETRIES + 1):
             try:
                 return await asyncio.wait_for(asyncio.to_thread(self._call, prepared), self.TIMEOUT_S)

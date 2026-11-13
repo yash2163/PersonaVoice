@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     polly_voice_id: str = ""
     polly_engine: str = "neural"  # or "generative"
     tts_concurrency: int = 3
+    # Delivery: neural voices are fast and run sentences together, so slow down a touch and pause.
+    tts_rate_pct: int = 86
+    tts_comma_pause_ms: int = 120
+    tts_sentence_pause_ms: int = 420
 
     # STT (Groq)
     groq_api_key: str = ""

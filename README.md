@@ -2,7 +2,7 @@
 
 A web voice bot that answers interview questions the way Yash would. Open the link, tap the mic (or type, or tap a sample question), and hear a spoken answer within a couple of seconds.
 
-**Live:** _TODO: add the Lightsail URL after deploy_ · add `?debug=1` for a timings panel.
+**Live:** _TODO: add the Lightsail URL after deploy_ · add `?debug=1` to print per-turn timings to the browser console (nothing technical is shown on the page).
 
 ![Architecture](docs/architecture.png)
 
@@ -19,7 +19,7 @@ Browser (static page, push-to-talk) → one stateless FastAPI container → Amaz
 | Filler | Pre-synthesized clip bank, played only if no answer audio within ~800 ms | Zero added latency or cost; a second LLM call has its own TTFT and often lands with the answer | Second "filler LLM" (stretch flag, off) |
 | No overlapping voices | One client-side sequential playback queue; server-side `asyncio.Semaphore` caps concurrent TTS | Audio plays in the browser, so ordering belongs there | Server-side semaphore to stop overlap |
 | LLM | Claude Haiku on Bedrock (ConverseStream), model ID from env | Fast, strong persona writing, paid from AWS credits | Larger models: slower for no visible gain |
-| TTS | Amazon Polly neural/generative; browser `speechSynthesis` as fallback | Natural voice, covered by credits, same cloud and IAM | ElevenLabs free tier: ~10 min a month, testers could exhaust it |
+| TTS | Amazon Polly neural/generative, sent as SSML (rate 86%, short pauses after commas, a longer pause after each sentence; tune with `TTS_RATE_PCT`, `TTS_COMMA_PAUSE_MS`, `TTS_SENTENCE_PAUSE_MS`; regenerate fillers after changing); browser `speechSynthesis` as fallback | Natural voice, covered by credits, same cloud and IAM | ElevenLabs free tier: ~10 min a month, testers could exhaust it |
 | STT | Groq `whisper-large-v3-turbo` on recorded audio | Fast, accurate on Indian English, works in every browser | Web Speech API: no Firefox, uneven Safari; Transcribe streaming: too much plumbing |
 | Transport | POST + Server-Sent Events over plain HTTP | Works through most proxies and hosts; one stream carries text and audio | WebSockets: not supported on every host |
 
@@ -76,7 +76,7 @@ Streaming check: `curl -N -X POST $URL/api/ask -H 'content-type: application/jso
 
 ## Frontend design
 
-The page is one column of plain type with a single memorable element, the voice line: a live waveform that is coral from the microphone while you speak and teal from Yash's actual audio while he answers (a slow wave while thinking). It replaces the usual round mic button with a labelled "Tap to talk" button, which is clearer for non-technical testers. Answers are set in Newsreader, the interface in Instrument Sans; both are self-hosted in `static/fonts/` (SIL Open Font License) so the page has no third-party runtime dependency. Light and dark themes follow the system, colour pairs are checked for WCAG AA in `tests/test_contrast.py`, and the layout is tested down to 360 px wide.
+The page is one column of plain type with a single memorable element, the voice line: a live waveform that is coral from the microphone while you speak and teal from Yash's actual audio while he answers (a slow wave while thinking). It replaces the usual round mic button with a labelled "Tap to talk" button, which is clearer for non-technical testers. Answers are set in Newsreader, the interface in Instrument Sans; both are self-hosted in `static/fonts/` (SIL Open Font License) so the page has no third-party runtime dependency. Light and dark themes follow the system, colour pairs are checked for WCAG AA in `tests/test_contrast.py`, and the layout is tested down to 360 px wide. A sticky top bar keeps the History button and the "How it's built" link in reach. History opens as a slide-over panel listing the last 20 messages, newest first (kept in the visitor's own browser, clearable). Once a conversation starts, the sample questions shrink to a single scrolling strip so the answer gets the room. A plain-language technical page at `/about/` (`static/about/index.html`) covers the pipeline, design decisions, results, what I'd change and what could be added. Static files are served with `Cache-Control: no-cache` so a redeploy is never hidden by a stale cache.
 
 ## Tuning the persona
 
