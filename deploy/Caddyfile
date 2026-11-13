@@ -1,0 +1,7 @@
+# Replace the hostname with <server-ip-with-dashes>.sslip.io (or your own domain pointing at the server).
+13-204-210-169.sslip.io {
+	# Streaming answers: send each event to the browser as soon as it arrives.
+	reverse_proxy 127.0.0.1:8000 {
+		flush_interval -1
+	}
+}

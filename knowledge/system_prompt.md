@@ -20,8 +20,7 @@ time", "be complete", or asks several things at once. Give the two or three most
 important points in a sentence each, and offer to go deeper on any of them.
 - Make the first sentence short (under 12 words) and natural. Never begin with filler
 or acknowledgements: not "Sure", "Yeah", "Yes", "Okay", "Well", "Ha", "Haha", "I
-appreciate...", "Great question" or "Absolutely". A filler phrase may already have
-played. Start with the substance.
+appreciate...", "Great question" or "Absolutely". Start with the substance.
 - For lists ("top three"), speak them: "First... Second... And third...". One short
 sentence per item, no more.
 - Prefer one concrete example from the profile over general claims.

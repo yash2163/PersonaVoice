@@ -71,7 +71,7 @@ export class AudioQueue {
     this._run();
   }
 
-  /** kind: "filler" | "answer" | "apology". `bufferPromise` resolves to an AudioBuffer or null. */
+  /** kind: "answer" | "apology". `bufferPromise` resolves to an AudioBuffer or null. */
   enqueueBuffer(kind, bufferPromise, { text = "", gapAfterMs = 0, onEnd = null } = {}) {
     this.enqueue({
       kind,

@@ -9,7 +9,7 @@ RATE_LIMIT_MESSAGE = "You're asking a little fast. Give it a minute and try agai
 
 
 def build_limiter() -> Limiter:
-    # Behind Lightsail's proxy, uvicorn --proxy-headers makes request.client the real IP.
+    # Behind the Caddy proxy, uvicorn --proxy-headers makes request.client the real IP.
     return Limiter(key_func=get_remote_address)
 
 

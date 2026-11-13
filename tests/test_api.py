@@ -40,7 +40,7 @@ def test_health_and_config():
     with make_client() as c:
         assert c.get("/api/health").json() == {"ok": True, "llm": "fake-llm", "tts": "fake"}
         cfg = c.get("/api/config").json()
-        assert cfg["filler_threshold_ms"] == 800 and len(cfg["sample_questions"]) >= 5
+        assert cfg["apology"]["url"] == "/audio/apology.mp3" and len(cfg["sample_questions"]) >= 5 and "fillers" not in cfg
         assert "key" not in json.dumps(cfg).lower()
 
 

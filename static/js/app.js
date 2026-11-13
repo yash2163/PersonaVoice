@@ -1,7 +1,6 @@
 // State machine + UI wiring.
 // States: idle | recording | transcribing | thinking | speaking | error
 import { AudioQueue } from "./audio-queue.js";
-import { FillerController } from "./filler.js";
 import { Recorder, recordingSupported } from "./recorder.js";
 import { VoiceLine } from "./voice-line.js";
 import { HttpError, streamSSE } from "./sse.js";
@@ -39,8 +38,8 @@ const LOG_KEY = "voicebot.history.v1";
 const queue = new AudioQueue();
 const recorder = new Recorder(() => queue.ctx);
 const voice = new VoiceLine($("voice-line"));
-let filler = new FillerController(queue);
-let cfg = { sample_questions: [], fillers: [], apology: null, filler_threshold_ms: 800, max_recording_s: 30 };
+let apology = null; // promise of the pre-recorded apology clip (AudioBuffer or null)
+let cfg = { sample_questions: [], apology: null, max_recording_s: 30 };
 
 let state = "idle";
 let turn = null; // the live turn, or null
@@ -81,7 +80,6 @@ function clearAnswer() { el.a.textContent = ""; el.turnA.hidden = true; }
 // ---------------------------------------------------------------------- turns
 function interrupt() {
   if (turn) { turn.cancelled = true; turn.abort.abort(); }
-  filler.cancelTurn();
   queue.stop();
   turn = null;
   el.retry.hidden = true;
@@ -94,12 +92,11 @@ function beginTurn() {
     abort: new AbortController(),
     t0: performance.now(),
     cancelled: false, streamEnded: false, gotAudio: false, incomplete: false, errored: false,
-    answer: "", spoken: [], question: "", sttMs: null, firstAnswerAt: null, timings: null, fillersPlayed: 0, requestId: "",
+    answer: "", spoken: [], question: "", sttMs: null, firstAnswerAt: null, timings: null, requestId: "",
   };
   clearAnswer();
   el.chips.classList.add("compact"); // sample questions shrink to one strip once the conversation starts
   el.askLabel.textContent = "More questions";
-  filler.startTurn();
   return turn;
 }
 
@@ -107,7 +104,6 @@ function maybeFinish() {
   const t = turn;
   if (!t || !t.streamEnded || queue.busy) return;
   turn = null;
-  filler.cancelTurn();
   if (state !== "error") setState("idle");
   if (DEBUG) logDebug(t);
 }
@@ -116,7 +112,6 @@ queue.onItemStart = (item) => {
   const t = turn;
   if (!t) return;
   voice.setMode("bot", queue.analyser);
-  if (item.kind === "filler") { t.fillersPlayed++; return; }
   if (!t.firstAnswerAt) t.firstAnswerAt = performance.now();
   if (state === "thinking" || state === "transcribing") setState("speaking");
 };
@@ -158,14 +153,12 @@ async function runAsk(t, rawQuestion, sttMs) {
       if (t.cancelled) return;
       t.gotAudio = true;
       t.spoken.push(d.text);
-      filler.noteAnswer();
       queue.enqueueBuffer("answer", queue.decode(b64ToBuffer(d.b64)), { text: d.text });
     },
     tts_fallback: (d) => {
       if (t.cancelled) return;
       t.gotAudio = true;
       t.spoken.push(d.text);
-      filler.noteAnswer();
       queue.enqueueSpeech(d.text);
     },
     done: (d) => {
@@ -180,9 +173,8 @@ async function runAsk(t, rawQuestion, sttMs) {
     error: (d) => {
       if (t.cancelled) return;
       t.errored = true;
-      filler.cancelTurn();
       if (d.spoken && !t.gotAudio) {
-        if (filler.apology) queue.enqueueBuffer("apology", filler.apology, { text: d.spoken });
+        if (apology) queue.enqueueBuffer("apology", apology, { text: d.spoken });
         else queue.enqueueSpeech(d.spoken, "apology");
       }
       toast(d.message || "Something went wrong. Please try again.");
@@ -205,7 +197,6 @@ async function runAsk(t, rawQuestion, sttMs) {
     }
   } catch (e) {
     if (t.cancelled || e.name === "AbortError") return;
-    filler.cancelTurn();
     if (e instanceof HttpError && e.status === 429) {
       const msg = e.body?.message || "You're asking a little fast. Give it a minute and try again.";
       showError(msg);
@@ -324,7 +315,6 @@ async function stopRecording() {
     runAsk(t, text, ms);
   } catch (e) {
     if (t.cancelled || e.name === "AbortError") return;
-    filler.cancelTurn();
     turn = null;
     if (e instanceof HttpError && e.status === 429) {
       showError(e.body?.message || "You're asking a little fast. Give it a minute.");
@@ -433,7 +423,6 @@ function logDebug(t) {
     first_audio_server_ms: tm.first_audio_ms ?? null,
     first_audio_ui_ms: t.firstAnswerAt ? Math.round(t.firstAnswerAt - t.t0) : null,
     total_server_ms: tm.total_ms ?? null,
-    fillers_played: t.fillersPlayed,
     fallback_model: !!t.fallbackUsed,
   };
   window.__voicebotDebug = info;
@@ -446,15 +435,16 @@ function isInAppBrowser() {
 }
 
 async function boot() {
-  queue.init(); // lets us decode filler clips before the first tap
+  queue.init(); // lets us decode the apology clip before the first tap
   try {
     const r = await fetch("/api/config");
     if (r.ok) cfg = { ...cfg, ...(await r.json()) };
   } catch { /* defaults are fine */ }
   renderChips();
   renderHistory();
-  filler = new FillerController(queue, { fillers: cfg.fillers, thresholdMs: cfg.filler_threshold_ms });
-  filler.load(cfg.apology).catch(() => {});
+  if (cfg.apology?.url) {
+    apology = fetch(cfg.apology.url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject())).then((b) => queue.decode(b)).catch(() => null);
+  }
   if (isInAppBrowser()) el.hint.hidden = false;
   if (!micOk) {
     el.hint.hidden = false;

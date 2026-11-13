@@ -22,7 +22,7 @@ from app.persona import load_persona  # noqa: E402
 from app.stt import NoSpeechError  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-MP3 = (ROOT / "static" / "fillers" / "06-sure.mp3").read_bytes()  # ~1 s of real mp3
+MP3 = (ROOT / "static" / "audio" / "apology.mp3").read_bytes()  # a few seconds of real mp3
 BROWSERS = ["chromium", "firefox", "webkit"]
 
 
@@ -82,7 +82,7 @@ class FakeSTT:
 class LiveServer:
     def __init__(self, **settings):
         self.behaviour = Behaviour()
-        kw = {"rate_limit_ask": "1000/minute", "rate_limit_stt": "1000/minute", "filler_threshold_ms": 300, **settings}
+        kw = {"rate_limit_ask": "1000/minute", "rate_limit_stt": "1000/minute", **settings}
         s = Settings(_env_file=None, **kw)
         app = create_app(
             s,

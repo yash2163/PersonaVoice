@@ -1,7 +1,7 @@
 """Server-side safety nets for model habits the prompt alone doesn't reliably stop."""
 import re
 
-# A leading acknowledgement ("Sure, ...", "Yeah. ...", "Ha, ..."). A filler clip may already have played.
+# A leading acknowledgement ("Sure, ...", "Yeah. ...", "Ha, ...").
 _OPENER = re.compile(r"^\s*(?:sure|yeah|yep|yes|okay|ok|well|ha|haha|absolutely|great question)\s*[,.!:\u2014\u2013]+\s*", re.I)
 
 

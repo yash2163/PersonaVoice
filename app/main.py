@@ -18,7 +18,7 @@ from .config import Settings, get_settings
 from .llm import BedrockLLM
 from .logging_conf import hash_ip, log_fields, setup_logging
 from .persona import Persona, load_persona
-from .pipeline import Pipeline
+from .pipeline import SPOKEN_APOLOGY, Pipeline
 from .ratelimit import build_limiter, rate_limit_handler
 from .schemas import AskRequest, HealthResponse, TranscribeResponse
 from .stt import GroqWhisperSTT, NoSpeechError, STTUnavailable
@@ -50,11 +50,11 @@ def sse(event: dict) -> str:
     return f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
 
 
-def _filler_manifest(settings: Settings) -> dict:
-    path = settings.static_dir / "fillers" / "fillers.json"
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
-    return {"fillers": [], "apology": None}
+def _apology_entry(settings: Settings) -> dict | None:
+    """The pre-recorded 'lost my train of thought' clip, played when a turn fails outright."""
+    if (settings.static_dir / "audio" / "apology.mp3").is_file():
+        return {"text": SPOKEN_APOLOGY, "url": "/audio/apology.mp3"}
+    return None
 
 
 def create_app(
@@ -98,7 +98,7 @@ def create_app(
         if needs_boto:
             session = boto3.session.Session(**boto_kwargs)
             runtime = session.client("bedrock-runtime", config=boto_cfg)
-            polly = session.client("polly", config=boto_cfg)
+            polly = boto3.session.Session(**{**boto_kwargs, "region_name": settings.polly_region or settings.aws_region}).client("polly", config=boto_cfg)
 
         the_llm = llm or BedrockLLM(
             runtime,
@@ -160,14 +160,10 @@ def create_app(
 
     @app.get("/api/config")
     async def config(request: Request):
-        manifest = _filler_manifest(settings)
         return {
             "sample_questions": request.app.state.persona.sample_questions or FALLBACK_QUESTIONS,
-            "fillers": manifest.get("fillers", []),
-            "apology": manifest.get("apology"),
-            "filler_threshold_ms": settings.filler_threshold_ms,
+            "apology": _apology_entry(settings),
             "max_recording_s": settings.max_audio_seconds,
-            "features": {"contextual_filler": settings.contextual_filler},
         }
 
     @app.post("/api/transcribe", response_model=TranscribeResponse)

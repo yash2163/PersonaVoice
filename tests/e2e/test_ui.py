@@ -410,21 +410,20 @@ def test_technical_page_is_linked_readable_and_fits_a_phone(make_page, browser):
     assert p.errors == []
 
 
-# ----------------------------------------------------------------------------- fillers
+# ----------------------------------------------------------------------------- no canned filler audio
 @CHROMIUM_ONLY
-def test_filler_plays_only_on_slow_turns(make_page, server, browser):
-    def fillers_after_turn(first_token_delay):
-        server.behaviour.first_token_delay = first_token_delay
-        p = make_page(browser)
-        page = p.goto("?debug=1")
-        page.locator(".chip").nth(0).click()
-        page.wait_for_function("document.querySelector('#a-caption').textContent.includes('last one')", timeout=20000)
-        p.wait_state("idle", 40000)
-        page.wait_for_function("window.__voicebotDebug !== undefined")
-        return page.evaluate("window.__voicebotDebug.fillers_played")
-
-    assert fillers_after_turn(0.0) == 0
-    assert fillers_after_turn(1.6) >= 1
+def test_slow_turn_shows_thinking_state_and_plays_no_filler(make_page, server, browser):
+    server.behaviour.first_token_delay = 1.6
+    p = make_page(browser)
+    page = p.goto()
+    played = []
+    page.on("response", lambda r: played.append(r.url) if r.url.endswith(".mp3") else None)
+    page.locator(".chip").nth(0).click()
+    page.wait_for_function("document.querySelector('#talk').dataset.state === 'thinking'")
+    assert "thinking" in page.inner_text("#status").lower()
+    page.wait_for_function("document.querySelector('#a-caption').textContent.includes('last one')", timeout=20000)
+    p.wait_state("idle", 40000)
+    assert [u for u in played if "filler" in u] == []
 
 
 # ----------------------------------------------------------------------------- layout and accessibility

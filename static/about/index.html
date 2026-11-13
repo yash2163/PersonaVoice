@@ -53,7 +53,7 @@
         <li><strong>The browser plays one clip at a time.</strong> Text and audio arrive on one stream. A queue in the page plays the clips back to back, so voices never overlap.</li>
       </ol>
       <figure class="diagram">
-        <a href="/about/architecture.png"><img src="/about/architecture.png" alt="Architecture diagram. The browser holds the recorder, the stream client, the audio queue and a filler timer. One FastAPI server turns audio into text, streams the model's answer, cuts it into sentences, voices them in parallel and sends them back in order. Groq Whisper, Amazon Bedrock and Amazon Polly are the three outside services." width="1340" height="900"></a>
+        <a href="/about/architecture.png"><img src="/about/architecture.png" alt="Architecture diagram. The browser holds the recorder, the stream client, the audio queue and a voice line that shows a thinking state. One FastAPI server turns audio into text, streams the model's answer, cuts it into sentences, voices them in parallel and sends them back in order. Groq Whisper, Amazon Bedrock and Amazon Polly are the three outside services." width="1340" height="900"></a>
         <figcaption>Select the diagram to open it full size.</figcaption>
       </figure>
     </section>
@@ -87,9 +87,16 @@
       </article>
 
       <article class="decision">
-        <h3>Fillers only when the answer is slow</h3>
-        <p>If no answer audio has arrived after 0.8 seconds, a short pre-recorded clip ("Hmm, okay.") plays so the silence doesn't feel like a failure. The clips are made ahead of time with the same voice, cost nothing, and play at most twice a turn. Each one is neutral, so it can't contradict the answer that follows.</p>
-        <p class="alt">Turned down: a second model call to write a custom filler. It has its own wait and often arrives at the same moment as the real answer. The trade-off I accepted: when a filler plays, the real answer waits behind it.</p>
+        <h3>No spoken filler while it thinks</h3>
+        <p>My first version played a short pre-recorded clip ("Hmm, okay.") when the answer was slow. In testing the clips sounded unrelated to the question, like random noise, so I removed them. While the answer is on its way the page now says "Yash is thinking." and the voice line moves, so the wait reads as work in progress rather than as a stuck page.</p>
+        <p class="alt">Turned down: canned clips (built and removed, see above), and for now a contextual filler written by a second model. That option is described just below.</p>
+      </article>
+
+      <article class="decision option">
+        <h3>An option I'd add next: a filler written by a second, tiny model</h3>
+        <p>When a question arrives, a very small, fast model would write a three to six word acknowledgement that fits it ("Good one, let me think about my strengths."), in parallel with the real answer. It would be spoken only if it is ready before the real answer and dropped otherwise, and the real answer would never repeat it.</p>
+        <p>The trade-offs: it costs one extra tiny model call and one short voice clip per turn, well under a tenth of a cent. It must stay generic about the topic and never state facts, otherwise it could promise something the answer doesn't deliver. And it needs a rule for racing two streams. It is the first thing I'd try if the wait under the more natural voice feels too long.</p>
+        <p class="alt">Not built, because with this wait a related one-liner has to be right every time, and silence with a clear "thinking" state is safer than a wrong or random sentence.</p>
       </article>
 
       <article class="decision">
@@ -99,9 +106,9 @@
       </article>
 
       <article class="decision">
-        <h3>A calmer voice, tuned by measurement</h3>
-        <p>Amazon Polly's neural voice (Matthew) reads at about 200 words a minute by default and runs sentences together. The server now sends speech markup that slows it to 86%, adds a short pause after commas and a longer one after each sentence, which brings real answers to about 140 to 165 words a minute, close to a relaxed interview. The three numbers are settings, so they can be tuned without code changes.</p>
-        <p class="alt">Turned down: a paid voice service with a free tier small enough for testers to use up. Polly is covered by the same AWS account and security setup.</p>
+        <h3>A natural Indian-English voice, paced by measurement</h3>
+        <p>The voice is Arjun, one of Amazon Polly's generative voices, chosen after listening to ten candidates. Generative voices sound more natural than the older neural ones but take about a second longer to produce each sentence, and they are only offered in the US East region, so the voice service runs there while everything else runs in Mumbai. The server also sends speech markup that slows the voice slightly and adds a short pause after commas and a longer one after each sentence, which brings real answers to about 150 words a minute, close to a relaxed interview. The numbers are settings, so they can be tuned without code changes.</p>
+        <p class="alt">Turned down: the neural voice Matthew, which is about a second faster per answer (about 1 s to first audio instead of about 2 s). It is a three-line change back if speed matters more than naturalness, and a paid voice service with a small free tier that testers could use up.</p>
       </article>
 
       <article class="decision">
@@ -131,15 +138,17 @@
 
     <section id="speed">
       <h2>Speed</h2>
-      <p>Measured on a laptop against the real services. The deployed numbers will differ with network distance.</p>
+      <p>Measured against the real services, mostly from a laptop. A quick check of the live site agreed: a typed question started speaking after about 1.6 s and a spoken one after about 3.1 s, including 0.2 s to turn the speech into text.</p>
       <dl class="facts">
-        <div><dt>Question reaches server to first audio</dt><dd>about 1.0 s typical, 1.4 s for nine in ten</dd></div>
-        <div><dt>Model's first word</dt><dd>about 0.55 s</dd></div>
+        <div><dt>Model's first word</dt><dd>about 0.6 s</dd></div>
         <div><dt>Speech to text</dt><dd>0.25 to 0.4 s</dd></div>
+        <div><dt>Question reaches server to first audio</dt><dd>about 1.0 s with the neural voice; 1.8 to 3 s with Arjun</dd></div>
+        <div><dt>Speaking pace</dt><dd>about 150 words a minute</dd></div>
         <div><dt>Answer length</dt><dd>about 50 to 70 words, capped at 120</dd></div>
-        <div><dt>Cost per answer</dt><dd>under a cent (about $0.0065)</dd></div>
+        <div><dt>Cost per answer</dt><dd>under a cent</dd></div>
       </dl>
-      <p>Two honest caveats. First, when the filler plays, the answer in the browser begins about 2.4 to 3 seconds after the question, because it waits for the filler to finish. Second, 3 of 54 test turns were slow because the model stalled before its first word (twice for 7 to 9 seconds). I couldn't find the cause, so the server now gives up after 3.5 seconds, retries automatically, and the filler covers the wait.</p>
+      <p>Two honest caveats. First, the full 54-question evaluation was run with the neural voice, and the Arjun figure comes from a spot check of three questions, so treat it as indicative. Second, 3 of those 54 turns were slow because the model stalled before its first word (twice for 7 to 9 seconds). I couldn't find the cause, so the server now gives up after 3.5 seconds and retries automatically.</p>
+      <p>Nothing is spoken during the wait. The status line says "Yash is thinking." and the voice line animates. The filler option above is how I'd shorten how long that feels.</p>
     </section>
 
     <section id="reliability">
@@ -161,7 +170,7 @@
       <ul class="plain">
         <li><strong>44 backend tests</strong> cover the sentence cutter, the retry and fallback logic, the opener filter, speech markup, the API and colour contrast.</li>
         <li><strong>5 tests</strong> cover the browser's stream reader.</li>
-        <li><strong>57 browser tests</strong> run the real page in Chromium, Firefox and WebKit with a fake microphone and fake services: voice and typed flows, stopping and interrupting, every error above, history, fillers, phone layout, and keyboard use. They found real bugs, such as no feedback while the browser's microphone prompt was open.</li>
+        <li><strong>57 browser tests</strong> run the real page in Chromium, Firefox and WebKit with a fake microphone and fake services: voice and typed flows, stopping and interrupting, every error above, history, phone layout, and keyboard use. They found real bugs, such as no feedback while the browser's microphone prompt was open.</li>
         <li><strong>An evaluation script</strong> runs the 54 questions against the real services and writes a report of speed and the reviewer's scores. I re-run it after every change to the prompt or profile.</li>
       </ul>
     </section>
@@ -171,10 +180,10 @@
       <ul class="plain">
         <li><strong>Make it a real conversation.</strong> Detect when you start talking over the bot and stop it, and stream your voice as you speak instead of uploading it at the end. That also removes the tap, and lets the page show captions live.</li>
         <li><strong>Find the model stalls.</strong> Log every first-word time in production, and if stalls persist, start a second request after 1.5 seconds and use whichever answers first.</li>
-        <li><strong>Rethink the filler.</strong> Raise the delay before it plays, or shorten the clips, so it helps slow turns without delaying normal ones. This is one setting; I'd choose it with real-user timings.</li>
+        <li><strong>Try the filler model.</strong> Build the contextual filler described under design decisions and measure whether visitors find it helpful or intrusive.</li>
         <li><strong>Share limits across servers.</strong> Rate limits live in one process's memory today. Running more than one server, or surviving restarts, needs a shared store.</li>
         <li><strong>Run the evaluation automatically</strong> on every change to the profile or prompt, and add a human spot-check of the reviewer model's scores.</li>
-        <li><strong>Listen tests for the voice.</strong> I tuned the pace by measuring it. A proper A/B listening test with a few people, including against Polly's generative voice, would settle what sounds most natural.</li>
+        <li><strong>Listen tests for the voice.</strong> I tuned the pace by measuring it and picked the voice by ear on my own. A proper A/B listening test with a few people would settle what sounds most natural.</li>
         <li><strong>Add monitoring and alerts</strong> for slow first audio, error rates and spend, rather than reading logs by hand.</li>
         <li><strong>Test on real iPhones and Androids</strong> over HTTPS once deployed, including in-app browsers.</li>
         <li><strong>Keep the source private.</strong> The repository is public and contains the profile. A private repository, or a profile loaded at deploy time, would fix that.</li>
@@ -203,7 +212,7 @@
         <li>It only knows what's in Yash's profile, and says so when asked about anything else.</li>
         <li>Your history is kept in this browser only. Clearing site data or switching devices removes it.</li>
         <li>Some model stalls are unexplained, as described under Speed.</li>
-        <li>Numbers above are from local testing, not from the deployed site.</li>
+        <li>It runs on one small server, so it suits a demo and a handful of simultaneous visitors, not a crowd.</li>
       </ul>
     </section>
 

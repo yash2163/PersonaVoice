@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # TTS (Polly)
     polly_voice_id: str = ""
     polly_engine: str = "neural"  # or "generative"
+    polly_region: str = ""  # defaults to aws_region; generative voices such as Arjun need e.g. us-east-1
     tts_concurrency: int = 3
     # Delivery: neural voices are fast and run sentences together, so slow down a touch and pause.
     tts_rate_pct: int = 86
@@ -43,8 +44,6 @@ class Settings(BaseSettings):
     max_audio_seconds: int = 30
 
     # Client behaviour / limits
-    filler_threshold_ms: int = 800
-    contextual_filler: bool = False
     rate_limit_ask: str = "20/minute;300/day"
     rate_limit_stt: str = "20/minute"
 
