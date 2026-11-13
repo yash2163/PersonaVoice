@@ -7,6 +7,7 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 export class AudioQueue {
   constructor() {
     this.ctx = null;
+    this.analyser = null;
     this._items = [];
     this._running = false;
     this._gen = 0;
@@ -23,7 +24,14 @@ export class AudioQueue {
   init() {
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC) this.ctx = new AC();
+      if (AC) {
+        this.ctx = new AC();
+        // Everything audible passes through this analyser, which drives the voice line.
+        this.analyser = this.ctx.createAnalyser();
+        this.analyser.fftSize = 256;
+        this.analyser.smoothingTimeConstant = 0.6;
+        this.analyser.connect(this.ctx.destination);
+      }
     }
     return this.ctx;
   }
@@ -116,7 +124,7 @@ export class AudioQueue {
     return new Promise((resolve) => {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
-      src.connect(this.ctx.destination);
+      src.connect(this.analyser || this.ctx.destination);
       this._src = src;
       src.onended = () => { if (this._src === src) this._src = null; resolve(); };
       src.start(0);

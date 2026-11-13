@@ -3,26 +3,38 @@
 import { AudioQueue } from "./audio-queue.js";
 import { FillerController } from "./filler.js";
 import { Recorder, recordingSupported } from "./recorder.js";
+import { VoiceLine } from "./voice-line.js";
 import { HttpError, streamSSE } from "./sse.js";
 
 const $ = (id) => document.getElementById(id);
 const el = {
-  talk: $("talk"), status: $("status"), stop: $("stop"), retry: $("retry"),
-  q: $("q-caption"), a: $("a-caption"), chips: $("chips"),
+  talk: $("talk"), label: document.querySelector(".talk-label"), status: $("status"), stop: $("stop"), retry: $("retry"),
+  q: $("q-caption"), a: $("a-caption"), turnQ: $("turn-q"), turnA: $("turn-a"), empty: $("empty"), chips: $("chips"),
   form: $("text-form"), input: $("text-input"), toast: $("toast"), debug: $("debug"), hint: $("inapp-hint"),
 };
 const DEBUG = new URLSearchParams(location.search).get("debug") === "1";
-const STATUS = {
+// Button label and a short status line for each state.
+const LABEL = {
   idle: "Tap to talk",
-  recording: "Listening… tap again when you're done",
-  transcribing: "Transcribing…",
-  thinking: "Thinking…",
-  speaking: "Speaking…",
+  recording: "Tap when you're done",
+  transcribing: "Cancel",
+  thinking: "Ask something else",
+  speaking: "Ask something else",
+  error: "Try again",
 };
+const STATUS = {
+  idle: "",
+  recording: "Listening. Speak naturally.",
+  transcribing: "Turning your question into text.",
+  thinking: "Yash is thinking.",
+  speaking: "Yash is speaking.",
+};
+const VOICE_MODE = { idle: "idle", error: "idle", recording: "user", transcribing: "thinking", thinking: "thinking", speaking: "bot" };
 const MAX_Q = 500, MAX_HISTORY = 6, MAX_ANSWER_CHARS = 1500;
 
 const queue = new AudioQueue();
 const recorder = new Recorder(() => queue.ctx);
+const voice = new VoiceLine($("voice-line"));
 let filler = new FillerController(queue);
 let cfg = { sample_questions: [], fillers: [], apology: null, filler_threshold_ms: 800, max_recording_s: 30 };
 
@@ -38,10 +50,11 @@ let toastTimer = null;
 function setState(s, text) {
   state = s;
   el.talk.dataset.state = s;
-  el.talk.setAttribute("aria-label", s === "recording" ? "Stop recording" : "Tap to talk");
+  el.label.textContent = LABEL[s] ?? LABEL.idle;
   el.status.textContent = text ?? STATUS[s] ?? "";
   el.status.classList.toggle("error", s === "error");
   el.stop.hidden = !(s === "thinking" || s === "speaking");
+  voice.setMode(VOICE_MODE[s] ?? "idle", s === "recording" ? recorder.analyser : s === "speaking" ? queue.analyser : null);
 }
 
 function toast(msg, ms = 6000) {
@@ -57,8 +70,8 @@ function showError(msg, { focusText = false } = {}) {
   if (focusText) el.input.focus();
 }
 
-function setQuestion(text) { el.q.textContent = `“${text}”`; el.q.hidden = false; }
-function clearAnswer() { el.a.textContent = ""; el.a.hidden = true; }
+function setQuestion(text) { el.q.textContent = `“${text}”`; el.turnQ.hidden = false; el.empty.hidden = true; }
+function clearAnswer() { el.a.textContent = ""; el.turnA.hidden = true; }
 
 // ---------------------------------------------------------------------- turns
 function interrupt() {
@@ -95,6 +108,7 @@ function maybeFinish() {
 queue.onItemStart = (item) => {
   const t = turn;
   if (!t) return;
+  voice.setMode("bot", queue.analyser);
   if (item.kind === "filler") { t.fillersPlayed++; return; }
   if (!t.firstAnswerAt) t.firstAnswerAt = performance.now();
   if (state === "thinking" || state === "transcribing") setState("speaking");
@@ -103,6 +117,7 @@ queue.onDrain = () => {
   const t = turn;
   if (!t) return;
   if (!t.streamEnded && state === "speaking") setState("thinking");
+  else if (state === "thinking") voice.setMode("thinking");
   maybeFinish();
 };
 
@@ -125,7 +140,11 @@ async function runAsk(t, rawQuestion, sttMs) {
     text: (d) => {
       if (t.cancelled) return;
       t.answer += d.delta;
-      el.a.hidden = false;
+      if (el.turnA.hidden) {
+        el.turnA.hidden = false;
+        // Keep the answer in view when it starts (on phones it begins below the fold).
+        el.turnA.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      }
       el.a.textContent = t.answer;
     },
     audio: (d) => {
@@ -251,6 +270,10 @@ async function startRecording() {
     return;
   }
   starting = true;
+  // Browsers show a permission prompt on first use and don't resolve until it is answered, so say so.
+  el.label.textContent = "Waiting for microphone…";
+  el.status.classList.remove("error");
+  el.status.textContent = "Choose Allow when your browser asks to use the microphone.";
   try {
     await recorder.start();
   } catch (e) {
@@ -334,7 +357,6 @@ document.addEventListener("visibilitychange", () => {
   if (wasRecording) { clearTimeout(autoStop); setState("idle"); }
 });
 
-recorder.onLevel = (lvl) => el.talk.style.setProperty("--level", lvl.toFixed(3));
 
 // ---------------------------------------------------------------------- debug
 function renderDebug(t) {

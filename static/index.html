@@ -3,51 +3,73 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Talk to Yash</title>
-  <meta name="description" content="An AI voice bot Yash built to answer interview questions as him.">
-  <meta name="theme-color" content="#0f172a">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%236366f1'/%3E%3Crect x='26' y='14' width='12' height='24' rx='6' fill='white'/%3E%3Cpath d='M18 32a14 14 0 0 0 28 0M32 46v6' stroke='white' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <title>Talk to Yash Rajput</title>
+  <meta name="description" content="Ask an AI voice bot anything you'd ask Yash Rajput in an interview, and hear the answer in his voice and words.">
+  <meta property="og:title" content="Talk to Yash Rajput">
+  <meta property="og:description" content="An AI voice bot Yash built to answer interview questions as him. Tap, ask, listen.">
+  <meta property="og:type" content="website">
+  <meta name="theme-color" content="#E7ECEF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0D1A22" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230B7A75'/%3E%3Cg fill='white'%3E%3Crect x='12' y='26' width='6' height='12' rx='3'/%3E%3Crect x='22' y='18' width='6' height='28' rx='3'/%3E%3Crect x='32' y='10' width='6' height='44' rx='3'/%3E%3Crect x='42' y='20' width='6' height='24' rx='3'/%3E%3Crect x='52' y='27' width='4' height='10' rx='2'/%3E%3C/g%3E%3C/svg%3E">
+  <link rel="preload" href="/fonts/Newsreader-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/InstrumentSans-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="page">
-    <header class="head">
+    <header class="masthead">
       <h1>Yash Rajput</h1>
-      <p class="tagline">Ask me anything you'd ask in an interview</p>
-      <p class="disclosure">An AI voice bot Yash built to answer as him.</p>
+      <p class="lede">Ask me anything you'd ask in an interview.</p>
+      <p class="disclosure">I'm an AI voice bot that Yash built to answer as him, from his own notes.</p>
     </header>
 
-    <div id="inapp-hint" class="banner" hidden>
-      This in-app browser may block the microphone. Open this page in Chrome or Safari for voice, or just type below.
+    <div id="inapp-hint" class="notice" hidden>
+      This in-app browser may block the microphone. Open the page in Chrome or Safari to talk, or type your question below.
     </div>
 
-    <section class="stage" aria-label="Voice controls">
-      <button id="talk" class="talk" type="button" data-state="idle" aria-label="Tap to talk">
-        <span class="ring" aria-hidden="true"></span>
-        <svg class="icon icon-mic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4Zm6-4a1 1 0 1 1 2 0 8 8 0 0 1-7 7.94V21a1 1 0 1 1-2 0v-2.06A8 8 0 0 1 4 11a1 1 0 1 1 2 0 6 6 0 0 0 12 0Z"/></svg>
-        <svg class="icon icon-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-        <span class="spinner" aria-hidden="true"></span>
-      </button>
-      <p id="status" class="status" role="status" aria-live="polite">Tap to talk</p>
-      <button id="stop" class="btn btn-ghost" type="button" hidden>Stop</button>
-      <button id="retry" class="btn" type="button" hidden>Retry</button>
+    <section class="booth" aria-label="Voice controls">
+      <canvas id="voice-line" class="voice-line" aria-hidden="true"></canvas>
+      <div class="controls">
+        <button id="talk" class="talk" type="button" data-state="idle">
+          <svg class="icon icon-mic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a4 4 0 0 0 4-4V6a4 4 0 0 0-8 0v5a4 4 0 0 0 4 4Zm6-4a1 1 0 1 1 2 0 8 8 0 0 1-7 7.94V21a1 1 0 1 1-2 0v-2.06A8 8 0 0 1 4 11a1 1 0 1 1 2 0 6 6 0 0 0 12 0Z"/></svg>
+          <svg class="icon icon-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="talk-label">Tap to talk</span>
+        </button>
+        <button id="stop" class="btn-quiet" type="button" aria-label="Stop speaking" hidden>Stop</button>
+        <button id="retry" class="btn-quiet" type="button" hidden>Retry</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
     </section>
 
-    <section class="captions" aria-live="polite" aria-label="Conversation">
-      <p id="q-caption" class="q" hidden></p>
-      <p id="a-caption" class="a" hidden></p>
+    <section class="transcript" aria-label="Conversation" aria-live="polite">
+      <p id="empty" class="empty">Your conversation shows up here as Yash answers. Tap the button and ask, or pick one of the questions below.</p>
+      <div id="turn-q" class="turn turn-q" hidden>
+        <span class="who">You</span>
+        <p id="q-caption"></p>
+      </div>
+      <div id="turn-a" class="turn turn-a" hidden>
+        <span class="who">Yash (AI)</span>
+        <p id="a-caption"></p>
+      </div>
     </section>
 
-    <section class="inputs">
-      <div id="chips" class="chips" aria-label="Sample questions"></div>
+    <section class="ask" aria-label="Ask a question">
+      <p class="ask-label">Try one of these</p>
+      <div id="chips" class="chips"></div>
       <form id="text-form" class="text-form" autocomplete="off">
         <label class="sr-only" for="text-input">Type your question</label>
-        <input id="text-input" type="text" maxlength="500" placeholder="Or type your question…" enterkeyhint="send">
-        <button class="btn" type="submit">Send</button>
+        <input id="text-input" type="text" maxlength="500" placeholder="Or type your own question" enterkeyhint="send">
+        <button class="btn-send" type="submit">Ask</button>
       </form>
     </section>
 
     <aside id="debug" class="debug" hidden></aside>
+
+    <footer class="foot">
+      <p>Answers come from Claude on Amazon Bedrock, the voice is Amazon Polly, and speech recognition is Groq Whisper.</p>
+      <p>Your audio isn't saved. The text of each question is logged to help improve the answers.</p>
+    </footer>
   </main>
   <div id="toast" class="toast" role="alert" hidden></div>
   <script type="module" src="/js/app.js"></script>

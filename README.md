@@ -67,9 +67,16 @@ cp .env.example .env        # fill in AWS keys, BEDROCK_MODEL_ID, POLLY_VOICE_ID
 # open http://localhost:8000   (localhost counts as a secure context, so the mic works)
 ```
 
-Tests: `.venv/bin/python -m pytest` and `node --test tests/js/sse.test.mjs`.
+Tests:
+- `.venv/bin/python -m pytest` runs the backend and colour-contrast tests, and `node --test tests/js/sse.test.mjs` the SSE client.
+- Browser end-to-end tests (voice, text, stop, interrupt, errors, fillers, mobile layout, keyboard) run the real app with fake providers in Chromium, Firefox and WebKit, so they are free and need no keys:
+  `uv pip install --python .venv/bin/python -r requirements-e2e.txt && .venv/bin/python -m playwright install chromium firefox webkit && .venv/bin/python -m pytest -m e2e tests/e2e`
 Eval: `.venv/bin/python scripts/eval.py --base-url http://localhost:8000` (writes `eval_report.md`).
 Streaming check: `curl -N -X POST $URL/api/ask -H 'content-type: application/json' -d '{"question":"What is your superpower?","history":[]}'` must print events gradually.
+
+## Frontend design
+
+The page is one column of plain type with a single memorable element, the voice line: a live waveform that is coral from the microphone while you speak and teal from Yash's actual audio while he answers (a slow wave while thinking). It replaces the usual round mic button with a labelled "Tap to talk" button, which is clearer for non-technical testers. Answers are set in Newsreader, the interface in Instrument Sans; both are self-hosted in `static/fonts/` (SIL Open Font License) so the page has no third-party runtime dependency. Light and dark themes follow the system, colour pairs are checked for WCAG AA in `tests/test_contrast.py`, and the layout is tested down to 360 px wide.
 
 ## Tuning the persona
 

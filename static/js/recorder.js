@@ -20,13 +20,12 @@ export class Recorder {
     this.rec = null;
     this.chunks = [];
     this.startedAt = 0;
-    this.onLevel = null; // (0..1) => void
-    this._raf = 0;
     this._analyser = null;
     this._source = null;
   }
 
   get recording() { return this.rec?.state === "recording"; }
+  get analyser() { return this._analyser; }
 
   async start() {
     if (!this.stream || !this.stream.active || this.stream.getAudioTracks().every((t) => t.readyState === "ended")) {
@@ -73,29 +72,19 @@ export class Recorder {
 
   _startMeter() {
     const ctx = this.getContext();
-    if (!ctx || !this.onLevel) return;
+    if (!ctx) return;
     try {
       this._source = ctx.createMediaStreamSource(this.stream);
       this._analyser = ctx.createAnalyser();
-      this._analyser.fftSize = 512;
+      this._analyser.fftSize = 256;
+      this._analyser.smoothingTimeConstant = 0.6;
       this._source.connect(this._analyser); // not connected to destination: no feedback
-      const data = new Uint8Array(this._analyser.fftSize);
-      const tick = () => {
-        this._analyser.getByteTimeDomainData(data);
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
-        this.onLevel(Math.min(1, Math.sqrt(sum / data.length) * 4));
-        this._raf = requestAnimationFrame(tick);
-      };
-      tick();
-    } catch { /* meter is cosmetic */ }
+    } catch { /* the meter is cosmetic */ }
   }
 
   _stopMeter() {
-    cancelAnimationFrame(this._raf);
     try { this._source?.disconnect(); } catch { /* ignore */ }
     this._source = null;
     this._analyser = null;
-    this.onLevel?.(0);
   }
 }
