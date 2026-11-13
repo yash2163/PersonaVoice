@@ -1,0 +1,23 @@
+# Secrets: never commit. .env.example (no values) is the template.
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Logs and generated eval reports (rerun scripts/eval.py to regenerate)
+*.log
+eval_report*.md
+
+# Tooling
+node_modules/
+.claude/

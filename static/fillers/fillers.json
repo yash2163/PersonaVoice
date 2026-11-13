@@ -1,0 +1,48 @@
+{
+  "fillers": [
+    {
+      "id": "f0",
+      "text": "Hmm, let me think about that.",
+      "url": "/fillers/00-hmm-let-me-think-about-that.mp3"
+    },
+    {
+      "id": "f1",
+      "text": "Okay, good one.",
+      "url": "/fillers/01-okay-good-one.mp3"
+    },
+    {
+      "id": "f2",
+      "text": "Right, so...",
+      "url": "/fillers/02-right-so.mp3"
+    },
+    {
+      "id": "f3",
+      "text": "Oh, that's an interesting one.",
+      "url": "/fillers/03-oh-that-s-an-interesting-one.mp3"
+    },
+    {
+      "id": "f4",
+      "text": "Let me see...",
+      "url": "/fillers/04-let-me-see.mp3"
+    },
+    {
+      "id": "f5",
+      "text": "Hmm, okay.",
+      "url": "/fillers/05-hmm-okay.mp3"
+    },
+    {
+      "id": "f6",
+      "text": "Sure.",
+      "url": "/fillers/06-sure.mp3"
+    },
+    {
+      "id": "f7",
+      "text": "Alright.",
+      "url": "/fillers/07-alright.mp3"
+    }
+  ],
+  "apology": {
+    "text": "Sorry, I lost my train of thought. Could you ask that again?",
+    "url": "/fillers/apology.mp3"
+  }
+}

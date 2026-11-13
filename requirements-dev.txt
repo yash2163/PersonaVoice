@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8
+# Used only by scripts/eval.py to read scripts/eval_questions.yaml
+pyyaml>=6
